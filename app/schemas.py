@@ -165,6 +165,12 @@ class AttachmentCreate(BaseModel):
     description: str = ""
 
 
+class AttachmentUpdate(BaseModel):
+    file_name: Optional[str] = None
+    file_path: Optional[str] = None
+    description: Optional[str] = None
+
+
 class AttachmentOut(BaseModel):
     id: int
     entity_type: str
