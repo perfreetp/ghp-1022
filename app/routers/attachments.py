@@ -18,32 +18,37 @@ def _log_undo(db, user_id, op, entity_type, entity_id, before, after):
     db.flush()
 
 
-def _check_entity_owner(entity_type: str, entity_id: int, user_id: str, db: Session):
-    if entity_type == "idea":
-        owner = db.query(Idea).filter(Idea.id == entity_id, Idea.user_id == user_id).first()
-    elif entity_type == "experiment":
-        owner = db.query(Experiment).filter(Experiment.id == entity_id, Experiment.user_id == user_id).first()
-    else:
-        raise HTTPException(status_code=400, detail=f"不支持对 {entity_type} 类型挂载附件")
-    if not owner:
-        raise HTTPException(status_code=404, detail="所属资源不存在或无权限")
-
-
-def _get_attachment_exp_id(att: Attachment, db: Session) -> Optional[int]:
-    if att.entity_type == "experiment":
-        return att.entity_id
-    elif att.entity_type == "idea":
-        exp = db.query(Experiment).filter(Experiment.idea_id == att.entity_id).first()
+def _resolve_exp_id(entity_type: str, entity_id: int, db: Session) -> Optional[int]:
+    if entity_type == "experiment":
+        return entity_id
+    elif entity_type == "idea":
+        exp = db.query(Experiment).filter(Experiment.idea_id == entity_id).first()
         return exp.id if exp else None
     return None
 
 
+def _require_entity_role(entity_type: str, entity_id: int, user_id: str, required_role: str, db: Session):
+    if entity_type not in ("idea", "experiment"):
+        raise HTTPException(status_code=400, detail=f"不支持对 {entity_type} 类型挂载附件")
+    if entity_type == "idea":
+        idea = db.query(Idea).filter(Idea.id == entity_id).first()
+        if not idea:
+            raise HTTPException(status_code=404, detail="所属资源不存在")
+        exp = db.query(Experiment).filter(Experiment.idea_id == entity_id).first()
+        if exp:
+            require_role(exp.id, user_id, required_role, db)
+        elif idea.user_id != user_id:
+            raise HTTPException(status_code=403, detail="权限不足")
+    else:
+        require_role(entity_id, user_id, required_role, db)
+
+
 def _check_attachment_permission(att: Attachment, user_id: str, required_role: str, db: Session):
-    if att.user_id == user_id:
-        return
-    exp_id = _get_attachment_exp_id(att, db)
+    exp_id = _resolve_exp_id(att.entity_type, att.entity_id, db)
     if exp_id:
         require_role(exp_id, user_id, required_role, db)
+    elif att.user_id == user_id:
+        return
     else:
         raise HTTPException(status_code=403, detail="权限不足")
 
@@ -65,7 +70,7 @@ def _find_all_versions(root_id: int, db: Session) -> list:
 
 @router.post("", response_model=AttachmentOut, summary="保存附件说明")
 def create_attachment(body: AttachmentCreate, user_id: str = Query(...), db: Session = Depends(get_db)):
-    _check_entity_owner(body.entity_type, body.entity_id, user_id, db)
+    _require_entity_role(body.entity_type, body.entity_id, user_id, "editor", db)
     version = 1
     is_current = True
     if body.parent_id:
@@ -111,11 +116,29 @@ def search_attachments(
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    q = db.query(Attachment).filter(Attachment.user_id == user_id)
-    if entity_type:
-        q = q.filter(Attachment.entity_type == entity_type)
-    if entity_id is not None:
-        q = q.filter(Attachment.entity_id == entity_id)
+    own_exp_ids = [e.id for e in db.query(Experiment).filter(Experiment.user_id == user_id).all()]
+    collab_exp_ids = [c.experiment_id for c in db.query(Collaborator).filter(Collaborator.user_id == user_id).all()]
+    accessible_exp_ids = set(own_exp_ids + collab_exp_ids)
+    accessible_idea_ids = [e.idea_id for e in db.query(Experiment).filter(Experiment.id.in_(accessible_exp_ids)).all() if e.idea_id]
+
+    if entity_type == "experiment" and entity_id is not None:
+        if entity_id not in accessible_exp_ids:
+            return AttachmentListResponse(total=0, items=[], skip=skip, limit=limit)
+        q = db.query(Attachment).filter(Attachment.entity_type == entity_type, Attachment.entity_id == entity_id)
+    elif entity_type == "idea" and entity_id is not None:
+        if entity_id not in set(accessible_idea_ids):
+            return AttachmentListResponse(total=0, items=[], skip=skip, limit=limit)
+        q = db.query(Attachment).filter(Attachment.entity_type == entity_type, Attachment.entity_id == entity_id)
+    else:
+        exp_atts = db.query(Attachment).filter(
+            Attachment.entity_type == "experiment", Attachment.entity_id.in_(accessible_exp_ids)
+        )
+        idea_atts = db.query(Attachment).filter(
+            Attachment.entity_type == "idea", Attachment.entity_id.in_(accessible_idea_ids)
+        ) if accessible_idea_ids else db.query(Attachment).filter(Attachment.id < 0)
+        all_ids = [a.id for a in exp_atts.all()] + [a.id for a in idea_atts.all()]
+        q = db.query(Attachment).filter(Attachment.id.in_(all_ids)) if all_ids else db.query(Attachment).filter(Attachment.id < 0)
+
     if file_name:
         q = q.filter(Attachment.file_name.contains(file_name))
     if created_after:
@@ -138,7 +161,7 @@ def list_attachments(
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    _check_entity_owner(entity_type, entity_id, user_id, db)
+    _require_entity_role(entity_type, entity_id, user_id, "viewer", db)
     q = db.query(Attachment).filter(
         Attachment.entity_type == entity_type, Attachment.entity_id == entity_id
     )
@@ -166,7 +189,7 @@ def list_versions(att_id: int, user_id: str = Query(...), db: Session = Depends(
 
 @router.get("/current/{entity_type}/{entity_id}", response_model=Optional[AttachmentOut], summary="获取当前版本")
 def get_current_version(entity_type: str, entity_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
-    _check_entity_owner(entity_type, entity_id, user_id, db)
+    _require_entity_role(entity_type, entity_id, user_id, "viewer", db)
     return (
         db.query(Attachment)
         .filter(Attachment.entity_type == entity_type, Attachment.entity_id == entity_id, Attachment.is_current == True)

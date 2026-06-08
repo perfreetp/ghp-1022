@@ -73,6 +73,17 @@ def undo_operation(body: UndoRequest, user_id: str = Query(...), db: Session = D
     if log.operation_type == "create":
         entity = db.query(model_cls).filter(model_cls.id == log.entity_id).first()
         if entity:
+            if log.entity_type == "attachment" and entity.is_current:
+                if entity.parent_id:
+                    parent = db.query(Attachment).filter(Attachment.id == entity.parent_id).first()
+                    if parent:
+                        parent.is_current = True
+                else:
+                    child = db.query(Attachment).filter(
+                        Attachment.parent_id == entity.id,
+                    ).order_by(Attachment.version.asc()).first()
+                    if child:
+                        child.is_current = True
             db.delete(entity)
     elif log.operation_type == "delete":
         obj_data = dict(log.before_data)
@@ -80,6 +91,12 @@ def undo_operation(body: UndoRequest, user_id: str = Query(...), db: Session = D
             obj_data["id"] = log.entity_id
             if "user_id" not in obj_data:
                 obj_data["user_id"] = user_id
+            if log.entity_type == "attachment" and obj_data.get("is_current"):
+                db.query(Attachment).filter(
+                    Attachment.entity_type == obj_data.get("entity_type"),
+                    Attachment.entity_id == obj_data.get("entity_id"),
+                    Attachment.is_current == True,
+                ).update({"is_current": False})
             new = model_cls(**obj_data)
             db.add(new)
     elif log.operation_type == "update":

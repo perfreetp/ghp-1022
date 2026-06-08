@@ -41,9 +41,9 @@ def list_orders(exp_id: int, user_id: str = Query(...), db: Session = Depends(ge
 
 @router.put("/{order_id}/bind", response_model=OrderOut, summary="绑定订单来源")
 def bind_source(order_id: int, body: OrderBindSource, user_id: str = Query(...), db: Session = Depends(get_db)):
-    order = db.query(Order).filter(Order.id == order_id, Order.user_id == user_id).first()
+    order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
-        raise HTTPException(status_code=404, detail="订单不存在或无权限")
+        raise HTTPException(status_code=404, detail="订单不存在")
     require_role(order.experiment_id, user_id, "editor", db)
     before = {"source": order.source}
     order.source = body.source

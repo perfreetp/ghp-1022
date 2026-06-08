@@ -7,6 +7,7 @@ from app.schemas import (
     ExperimentCreate, ExperimentUpdate, MetricsUpdate, StepsUpdate,
     ExperimentOut, ExperimentCompare, ExperimentOverview, AttachmentOut,
 )
+from app.services.permissions import require_role
 
 router = APIRouter(prefix="/experiments", tags=["实验"])
 
@@ -89,19 +90,7 @@ def compare_experiments(
     return results
 
 
-@router.get("/{exp_id}", response_model=ExperimentOut, summary="获取实验详情")
-def get_experiment(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在或无权限")
-    return exp
-
-
-@router.get("/{exp_id}/overview", summary="实验详情概览")
-def get_experiment_overview(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+def _build_overview(exp_id: int, db: Session) -> dict:
     current_attachments = (
         db.query(Attachment)
         .filter(Attachment.entity_type == "experiment", Attachment.entity_id == exp_id, Attachment.is_current == True)
@@ -127,6 +116,21 @@ def get_experiment_overview(exp_id: int, user_id: str = Query(...), db: Session 
         total_income=total_income,
         net_profit=total_income - total_cost,
     ).model_dump()
+
+
+@router.get("/{exp_id}", summary="获取实验详情")
+def get_experiment(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
+    require_role(exp_id, user_id, "viewer", db)
+    exp = db.query(Experiment).filter(Experiment.id == exp_id).first()
+    result = ExperimentOut.model_validate(exp)
+    result.overview = _build_overview(exp_id, db)
+    return result.model_dump()
+
+
+@router.get("/{exp_id}/overview", summary="实验详情概览")
+def get_experiment_overview(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
+    require_role(exp_id, user_id, "viewer", db)
+    return _build_overview(exp_id, db)
 
 
 @router.put("/{exp_id}/metrics", response_model=ExperimentOut, summary="设置目标指标")

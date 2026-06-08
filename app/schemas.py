@@ -57,6 +57,7 @@ class ExperimentOut(BaseModel):
     user_id: str
     created_at: datetime
     updated_at: datetime
+    overview: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 
