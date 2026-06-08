@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Collaborator, Experiment, UndoLog
 from app.schemas import CollaboratorCreate, CollaboratorUpdate, CollaboratorOut
+from app.services.permissions import require_role, get_user_role
 
 router = APIRouter(prefix="/collaborators", tags=["协作者"])
 
@@ -17,9 +18,7 @@ def _log_undo(db, user_id, op, entity_type, entity_id, before, after):
 
 @router.post("", response_model=CollaboratorOut, summary="设置协作者权限")
 def add_collaborator(body: CollaboratorCreate, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == body.experiment_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=403, detail="只有实验创建者才能新增协作者")
+    require_role(body.experiment_id, user_id, "owner", db)
     existing = (
         db.query(Collaborator)
         .filter(Collaborator.experiment_id == body.experiment_id, Collaborator.user_id == body.user_id)
@@ -40,9 +39,7 @@ def add_collaborator(body: CollaboratorCreate, user_id: str = Query(...), db: Se
 
 @router.get("/experiment/{exp_id}", response_model=list[CollaboratorOut], summary="获取协作者列表")
 def list_collaborators(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+    require_role(exp_id, user_id, "viewer", db)
     return db.query(Collaborator).filter(Collaborator.experiment_id == exp_id).all()
 
 
@@ -53,9 +50,7 @@ def update_collaborator(
     collab = db.query(Collaborator).filter(Collaborator.id == collab_id).first()
     if not collab:
         raise HTTPException(status_code=404, detail="协作者记录不存在")
-    exp = db.query(Experiment).filter(Experiment.id == collab.experiment_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=403, detail="无权限修改此实验的协作者")
+    require_role(collab.experiment_id, user_id, "owner", db)
     before = {"role": collab.role}
     collab.role = body.role
     db.commit()
@@ -70,9 +65,7 @@ def remove_collaborator(collab_id: int, user_id: str = Query(...), db: Session =
     collab = db.query(Collaborator).filter(Collaborator.id == collab_id).first()
     if not collab:
         raise HTTPException(status_code=404, detail="协作者记录不存在")
-    exp = db.query(Experiment).filter(Experiment.id == collab.experiment_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=403, detail="无权限移除此实验的协作者")
+    require_role(collab.experiment_id, user_id, "owner", db)
     before = {"experiment_id": collab.experiment_id, "user_id": collab.user_id, "role": collab.role}
     db.delete(collab)
     _log_undo(db, user_id, "delete", "collaborator", collab_id, before, {})

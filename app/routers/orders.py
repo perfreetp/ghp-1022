@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Order, Experiment, UndoLog
 from app.schemas import OrderCreate, OrderBindSource, OrderOut
+from app.services.permissions import require_role
 
 router = APIRouter(prefix="/orders", tags=["订单"])
 
@@ -17,9 +18,7 @@ def _log_undo(db, user_id, op, entity_type, entity_id, before, after):
 
 @router.post("", response_model=OrderOut, summary="创建订单")
 def create_order(body: OrderCreate, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == body.experiment_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+    require_role(body.experiment_id, user_id, "editor", db)
     order = Order(
         experiment_id=body.experiment_id, source=body.source,
         amount=body.amount, status=body.status,
@@ -36,9 +35,7 @@ def create_order(body: OrderCreate, user_id: str = Query(...), db: Session = Dep
 
 @router.get("/experiment/{exp_id}", response_model=list[OrderOut], summary="查看实验订单")
 def list_orders(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+    require_role(exp_id, user_id, "viewer", db)
     return db.query(Order).filter(Order.experiment_id == exp_id).order_by(Order.created_at.desc()).all()
 
 
@@ -47,6 +44,7 @@ def bind_source(order_id: int, body: OrderBindSource, user_id: str = Query(...),
     order = db.query(Order).filter(Order.id == order_id, Order.user_id == user_id).first()
     if not order:
         raise HTTPException(status_code=404, detail="订单不存在或无权限")
+    require_role(order.experiment_id, user_id, "editor", db)
     before = {"source": order.source}
     order.source = body.source
     db.commit()

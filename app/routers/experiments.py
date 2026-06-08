@@ -2,10 +2,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Idea, Experiment, Budget, Order, Feedback, UndoLog
+from app.models import Idea, Experiment, Budget, Order, Feedback, UndoLog, Attachment, Review
 from app.schemas import (
     ExperimentCreate, ExperimentUpdate, MetricsUpdate, StepsUpdate,
-    ExperimentOut, ExperimentCompare,
+    ExperimentOut, ExperimentCompare, ExperimentOverview, AttachmentOut,
 )
 
 router = APIRouter(prefix="/experiments", tags=["实验"])
@@ -95,6 +95,38 @@ def get_experiment(exp_id: int, user_id: str = Query(...), db: Session = Depends
     if not exp:
         raise HTTPException(status_code=404, detail="实验不存在或无权限")
     return exp
+
+
+@router.get("/{exp_id}/overview", summary="实验详情概览")
+def get_experiment_overview(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
+    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
+    if not exp:
+        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+    current_attachments = (
+        db.query(Attachment)
+        .filter(Attachment.entity_type == "experiment", Attachment.entity_id == exp_id, Attachment.is_current == True)
+        .all()
+    )
+    recent = (
+        db.query(Attachment)
+        .filter(Attachment.entity_type == "experiment", Attachment.entity_id == exp_id)
+        .order_by(Attachment.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    review_count = db.query(Review).filter(Review.experiment_id == exp_id).count()
+    budgets = db.query(Budget).filter(Budget.experiment_id == exp_id).all()
+    total_cost = sum(b.amount for b in budgets if b.type == "cost")
+    total_income = sum(b.amount for b in budgets if b.type == "income")
+    return ExperimentOverview(
+        experiment_id=exp_id,
+        attachment_count=len(current_attachments),
+        recent_attachments=[AttachmentOut.model_validate(a) for a in recent],
+        review_count=review_count,
+        total_cost=total_cost,
+        total_income=total_income,
+        net_profit=total_income - total_cost,
+    ).model_dump()
 
 
 @router.put("/{exp_id}/metrics", response_model=ExperimentOut, summary="设置目标指标")

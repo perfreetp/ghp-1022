@@ -126,6 +126,10 @@ class Attachment(Base):
     file_name = Column(String(255), nullable=False)
     file_path = Column(String(500), default="")
     description = Column(Text, default="")
+    version = Column(Integer, default=1)
+    change_note = Column(String(500), default="")
+    is_current = Column(Boolean, default=True)
+    parent_id = Column(Integer, nullable=True)
     user_id = Column(String(100), nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

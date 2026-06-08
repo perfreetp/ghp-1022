@@ -3,15 +3,14 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Feedback, Experiment
 from app.schemas import FeedbackCreate, FeedbackOut
+from app.services.permissions import require_role
 
 router = APIRouter(prefix="/feedbacks", tags=["反馈"])
 
 
 @router.post("", response_model=FeedbackOut, summary="创建反馈")
 def create_feedback(body: FeedbackCreate, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == body.experiment_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+    require_role(body.experiment_id, user_id, "editor", db)
     fb = Feedback(
         experiment_id=body.experiment_id, content=body.content,
         customer_name=body.customer_name, rating=body.rating, user_id=user_id,
@@ -24,9 +23,7 @@ def create_feedback(body: FeedbackCreate, user_id: str = Query(...), db: Session
 
 @router.get("/experiment/{exp_id}", summary="汇总客户留言")
 def aggregate_feedbacks(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+    require_role(exp_id, user_id, "viewer", db)
     feedbacks = db.query(Feedback).filter(Feedback.experiment_id == exp_id).order_by(Feedback.created_at.desc()).all()
     total = len(feedbacks)
     avg_rating = (sum(f.rating for f in feedbacks) / total) if total > 0 else 0

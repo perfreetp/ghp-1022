@@ -163,12 +163,15 @@ class AttachmentCreate(BaseModel):
     file_name: str
     file_path: str = ""
     description: str = ""
+    change_note: str = ""
+    parent_id: Optional[int] = None
 
 
 class AttachmentUpdate(BaseModel):
     file_name: Optional[str] = None
     file_path: Optional[str] = None
     description: Optional[str] = None
+    change_note: Optional[str] = None
 
 
 class AttachmentOut(BaseModel):
@@ -178,10 +181,31 @@ class AttachmentOut(BaseModel):
     file_name: str
     file_path: str
     description: str
+    version: int
+    change_note: str
+    is_current: bool
+    parent_id: Optional[int] = None
     user_id: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AttachmentListResponse(BaseModel):
+    total: int
+    items: list[AttachmentOut]
+    skip: int
+    limit: int
+
+
+class ExperimentOverview(BaseModel):
+    experiment_id: int
+    attachment_count: int
+    recent_attachments: list[AttachmentOut]
+    review_count: int
+    total_cost: float
+    total_income: float
+    net_profit: float
 
 
 class CollaboratorCreate(BaseModel):

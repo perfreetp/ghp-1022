@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Budget, Experiment, UndoLog
 from app.schemas import BudgetCreate, BudgetOut
+from app.services.permissions import require_role
 
 router = APIRouter(prefix="/budgets", tags=["预算"])
 
@@ -17,9 +18,7 @@ def _log_undo(db, user_id, op, entity_type, entity_id, before, after):
 
 @router.post("", response_model=BudgetOut, summary="记录成本/收入")
 def create_budget(body: BudgetCreate, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == body.experiment_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+    require_role(body.experiment_id, user_id, "editor", db)
     if body.type not in ("cost", "income"):
         raise HTTPException(status_code=400, detail="type 必须为 cost 或 income")
     budget = Budget(
@@ -36,17 +35,14 @@ def create_budget(body: BudgetCreate, user_id: str = Query(...), db: Session = D
 
 @router.get("/experiment/{exp_id}", response_model=list[BudgetOut], summary="查看实验预算")
 def list_budgets(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+    require_role(exp_id, user_id, "viewer", db)
     return db.query(Budget).filter(Budget.experiment_id == exp_id).order_by(Budget.recorded_at.desc()).all()
 
 
 @router.get("/conversion-rate/{exp_id}", summary="计算转化率")
 def get_conversion_rate(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
-    if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+    require_role(exp_id, user_id, "viewer", db)
+    exp = db.query(Experiment).filter(Experiment.id == exp_id).first()
     budgets = db.query(Budget).filter(Budget.experiment_id == exp_id).all()
     orders = exp.orders
     total_cost = sum(b.amount for b in budgets if b.type == "cost")
