@@ -10,9 +10,9 @@ router = APIRouter(prefix="/reminders", tags=["提醒"])
 
 @router.post("", response_model=ReminderOut, summary="创建提醒")
 def create_reminder(body: ReminderCreate, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == body.experiment_id).first()
+    exp = db.query(Experiment).filter(Experiment.id == body.experiment_id, Experiment.user_id == user_id).first()
     if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在")
+        raise HTTPException(status_code=404, detail="实验不存在或无权限")
     reminder = Reminder(
         experiment_id=body.experiment_id, type=body.type,
         message=body.message, remind_at=body.remind_at, user_id=user_id,
@@ -48,5 +48,8 @@ def send_reminder(reminder_id: int, user_id: str = Query(...), db: Session = Dep
 
 
 @router.get("/experiment/{exp_id}", response_model=list[ReminderOut], summary="获取实验提醒列表")
-def list_reminders(exp_id: int, db: Session = Depends(get_db)):
+def list_reminders(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
+    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
+    if not exp:
+        raise HTTPException(status_code=404, detail="实验不存在或无权限")
     return db.query(Reminder).filter(Reminder.experiment_id == exp_id).order_by(Reminder.remind_at.asc()).all()

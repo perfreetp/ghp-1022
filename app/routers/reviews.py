@@ -61,14 +61,17 @@ def generate_review(exp_id: int, user_id: str = Query(...), db: Session = Depend
     return review
 
 
-@router.get("/{review_id}", response_model=ReviewOut, summary="获取复盘详情")
-def get_review(review_id: int, db: Session = Depends(get_db)):
-    review = db.query(Review).filter(Review.id == review_id).first()
-    if not review:
-        raise HTTPException(status_code=404, detail="复盘不存在")
-    return review
-
-
 @router.get("/experiment/{exp_id}", response_model=list[ReviewOut], summary="获取实验的所有复盘")
-def list_reviews(exp_id: int, db: Session = Depends(get_db)):
-    return db.query(Review).filter(Review.experiment_id == exp_id).order_by(Review.created_at.desc()).all()
+def list_reviews(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
+    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
+    if not exp:
+        raise HTTPException(status_code=404, detail="实验不存在或无权限")
+    return db.query(Review).filter(Review.experiment_id == exp_id, Review.user_id == user_id).order_by(Review.created_at.desc()).all()
+
+
+@router.get("/{review_id}", response_model=ReviewOut, summary="获取复盘详情")
+def get_review(review_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
+    review = db.query(Review).filter(Review.id == review_id, Review.user_id == user_id).first()
+    if not review:
+        raise HTTPException(status_code=404, detail="复盘不存在或无权限")
+    return review

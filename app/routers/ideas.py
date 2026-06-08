@@ -47,10 +47,10 @@ def list_ideas(
 
 
 @router.get("/{idea_id}", response_model=IdeaOut, summary="获取点子详情")
-def get_idea(idea_id: int, db: Session = Depends(get_db)):
-    idea = db.query(Idea).filter(Idea.id == idea_id).first()
+def get_idea(idea_id: int, user_id: str = Query(..., description="用户ID"), db: Session = Depends(get_db)):
+    idea = db.query(Idea).filter(Idea.id == idea_id, Idea.user_id == user_id).first()
     if not idea:
-        raise HTTPException(status_code=404, detail="点子不存在")
+        raise HTTPException(status_code=404, detail="点子不存在或无权限")
     return idea
 
 

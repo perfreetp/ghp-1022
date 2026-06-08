@@ -22,9 +22,9 @@ def _log_undo(db: Session, user_id: str, op: str, entity_type: str, entity_id: i
 
 @router.post("", response_model=ExperimentOut, summary="创建实验")
 def create_experiment(body: ExperimentCreate, user_id: str = Query(...), db: Session = Depends(get_db)):
-    idea = db.query(Idea).filter(Idea.id == body.idea_id).first()
+    idea = db.query(Idea).filter(Idea.id == body.idea_id, Idea.user_id == user_id).first()
     if not idea:
-        raise HTTPException(status_code=404, detail="关联点子不存在")
+        raise HTTPException(status_code=404, detail="关联点子不存在或无权限")
     exp = Experiment(idea_id=body.idea_id, title=body.title, user_id=user_id)
     db.add(exp)
     db.commit()
@@ -90,10 +90,10 @@ def compare_experiments(
 
 
 @router.get("/{exp_id}", response_model=ExperimentOut, summary="获取实验详情")
-def get_experiment(exp_id: int, db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == exp_id).first()
+def get_experiment(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
+    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
     if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在")
+        raise HTTPException(status_code=404, detail="实验不存在或无权限")
     return exp
 
 
@@ -130,10 +130,10 @@ def update_steps(
 
 
 @router.get("/{exp_id}/status", summary="判断实验状态")
-def get_experiment_status(exp_id: int, db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == exp_id).first()
+def get_experiment_status(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
+    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
     if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在")
+        raise HTTPException(status_code=404, detail="实验不存在或无权限")
     total_cost = sum(b.amount for b in exp.budgets if b.type == "cost")
     total_income = sum(b.amount for b in exp.budgets if b.type == "income")
     feedback_count = len(exp.feedbacks)

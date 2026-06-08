@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from app.database import get_db
 from app.models import (
-    Experiment, Budget, Order, Idea, UndoLog, Collaborator,
+    Experiment, Budget, Order, Idea, UndoLog, Collaborator, Attachment, Review, Feedback, Reminder,
 )
 from app.schemas import (
     LeaderboardItem, SyncProgress, ExperimentOut, IdeaOut, UndoRequest, UndoLogOut,
@@ -64,6 +64,8 @@ def undo_operation(body: UndoRequest, user_id: str = Query(...), db: Session = D
         "experiment": Experiment,
         "budget": Budget,
         "order": Order,
+        "attachment": Attachment,
+        "collaborator": Collaborator,
     }
     model_cls = entity_map.get(log.entity_type)
     if not model_cls:
@@ -73,9 +75,12 @@ def undo_operation(body: UndoRequest, user_id: str = Query(...), db: Session = D
         if entity:
             db.delete(entity)
     elif log.operation_type == "delete":
-        obj_data = log.before_data
-        if obj_data and log.entity_type == "idea":
-            new = Idea(id=log.entity_id, user_id=user_id, **obj_data)
+        obj_data = dict(log.before_data)
+        if obj_data:
+            obj_data["id"] = log.entity_id
+            if "user_id" not in obj_data:
+                obj_data["user_id"] = user_id
+            new = model_cls(**obj_data)
             db.add(new)
     elif log.operation_type == "update":
         entity = db.query(model_cls).filter(model_cls.id == log.entity_id).first()

@@ -17,9 +17,9 @@ def _log_undo(db, user_id, op, entity_type, entity_id, before, after):
 
 @router.post("", response_model=CollaboratorOut, summary="设置协作者权限")
 def add_collaborator(body: CollaboratorCreate, user_id: str = Query(...), db: Session = Depends(get_db)):
-    exp = db.query(Experiment).filter(Experiment.id == body.experiment_id).first()
+    exp = db.query(Experiment).filter(Experiment.id == body.experiment_id, Experiment.user_id == user_id).first()
     if not exp:
-        raise HTTPException(status_code=404, detail="实验不存在")
+        raise HTTPException(status_code=403, detail="只有实验创建者才能新增协作者")
     existing = (
         db.query(Collaborator)
         .filter(Collaborator.experiment_id == body.experiment_id, Collaborator.user_id == body.user_id)
@@ -33,13 +33,16 @@ def add_collaborator(body: CollaboratorCreate, user_id: str = Query(...), db: Se
     db.add(collab)
     db.commit()
     db.refresh(collab)
-    _log_undo(db, user_id, "create", "collaborator", collab.id, {}, {"user_id": collab.user_id, "role": collab.role})
+    _log_undo(db, user_id, "create", "collaborator", collab.id, {}, {"experiment_id": collab.experiment_id, "user_id": collab.user_id, "role": collab.role})
     db.commit()
     return collab
 
 
 @router.get("/experiment/{exp_id}", response_model=list[CollaboratorOut], summary="获取协作者列表")
-def list_collaborators(exp_id: int, db: Session = Depends(get_db)):
+def list_collaborators(exp_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
+    exp = db.query(Experiment).filter(Experiment.id == exp_id, Experiment.user_id == user_id).first()
+    if not exp:
+        raise HTTPException(status_code=404, detail="实验不存在或无权限")
     return db.query(Collaborator).filter(Collaborator.experiment_id == exp_id).all()
 
 
@@ -70,7 +73,7 @@ def remove_collaborator(collab_id: int, user_id: str = Query(...), db: Session =
     exp = db.query(Experiment).filter(Experiment.id == collab.experiment_id, Experiment.user_id == user_id).first()
     if not exp:
         raise HTTPException(status_code=403, detail="无权限移除此实验的协作者")
-    before = {"user_id": collab.user_id, "role": collab.role}
+    before = {"experiment_id": collab.experiment_id, "user_id": collab.user_id, "role": collab.role}
     db.delete(collab)
     _log_undo(db, user_id, "delete", "collaborator", collab_id, before, {})
     db.commit()

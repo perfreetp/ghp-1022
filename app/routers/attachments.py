@@ -25,16 +25,20 @@ def create_attachment(body: AttachmentCreate, user_id: str = Query(...), db: Ses
     db.add(att)
     db.commit()
     db.refresh(att)
-    _log_undo(db, user_id, "create", "attachment", att.id, {}, {"file_name": att.file_name})
+    _log_undo(db, user_id, "create", "attachment", att.id, {}, {
+        "entity_type": att.entity_type, "entity_id": att.entity_id,
+        "file_name": att.file_name, "file_path": att.file_path,
+        "description": att.description,
+    })
     db.commit()
     return att
 
 
 @router.get("/{entity_type}/{entity_id}", response_model=list[AttachmentOut], summary="获取附件列表")
-def list_attachments(entity_type: str, entity_id: int, db: Session = Depends(get_db)):
+def list_attachments(entity_type: str, entity_id: int, user_id: str = Query(...), db: Session = Depends(get_db)):
     return (
         db.query(Attachment)
-        .filter(Attachment.entity_type == entity_type, Attachment.entity_id == entity_id)
+        .filter(Attachment.entity_type == entity_type, Attachment.entity_id == entity_id, Attachment.user_id == user_id)
         .order_by(Attachment.created_at.desc())
         .all()
     )
@@ -45,7 +49,11 @@ def delete_attachment(att_id: int, user_id: str = Query(...), db: Session = Depe
     att = db.query(Attachment).filter(Attachment.id == att_id, Attachment.user_id == user_id).first()
     if not att:
         raise HTTPException(status_code=404, detail="附件不存在或无权限")
-    before = {"file_name": att.file_name, "description": att.description}
+    before = {
+        "entity_type": att.entity_type, "entity_id": att.entity_id,
+        "file_name": att.file_name, "file_path": att.file_path,
+        "description": att.description, "user_id": att.user_id,
+    }
     db.delete(att)
     _log_undo(db, user_id, "delete", "attachment", att_id, before, {})
     db.commit()
